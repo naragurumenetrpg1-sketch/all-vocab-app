@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, X, Trash2, Layers, BookMarked } from "lucide-react";
+import { Plus, X, Trash2, Layers, BookMarked, Download, Upload } from "lucide-react";
 
 const STORAGE_KEY = "korean-vocab-words";
 const TRANSITION_MS = 520;
@@ -44,6 +44,8 @@ export default function KoreanVocabApp() {
 
   const exitTimeoutRef = useRef(null);
   const enterRafRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [importMessage, setImportMessage] = useState("");
 
   // ---- load on mount ----
   useEffect(() => {
@@ -138,6 +140,61 @@ export default function KoreanVocabApp() {
       setIsAnimating(false);
     }, TRANSITION_MS);
   }, [isAnimating, midCard, top1Card, bottom1Card, bottom2Card, top2Card, words]);
+
+  const exportWords = () => {
+    try {
+      const blob = new Blob([JSON.stringify(words, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const date = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `korean-vocab-backup-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setImportMessage("내보내기에 실패했어요. (書き出しに失敗しました)");
+    }
+  };
+
+  const triggerImport = () => {
+    setImportMessage("");
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      const cleaned = parsed
+        .filter((w) => w && typeof w.hangul === "string" && typeof w.meaning === "string")
+        .map((w) => ({
+          id: typeof w.id === "string" ? w.id : uid(),
+          hangul: w.hangul,
+          roman: typeof w.roman === "string" ? w.roman : "",
+          meaning: w.meaning,
+          conjugation: typeof w.conjugation === "string" ? w.conjugation : "",
+          createdAt: typeof w.createdAt === "number" ? w.createdAt : Date.now(),
+        }));
+      if (cleaned.length === 0) {
+        setImportMessage("가져올 수 있는 단어가 없었어요. (読み込める単語がありませんでした)");
+        return;
+      }
+      const existingIds = new Set(words.map((w) => w.id));
+      const merged = [...words, ...cleaned.filter((w) => !existingIds.has(w.id))];
+      setWords(merged);
+      await persist(merged);
+      setImportMessage(`${cleaned.length}개 단어를 가져왔어요. (${cleaned.length}個の単語を読み込みました)`);
+    } catch (err) {
+      setImportMessage("파일을 읽지 못했어요. 형식을 확인해 주세요. (ファイルを読み込めませんでした。形式を確認してください)");
+    } finally {
+      e.target.value = "";
+    }
+  };
 
   const handleAddWord = async (e) => {
     e.preventDefault();
@@ -420,9 +477,19 @@ export default function KoreanVocabApp() {
 
         .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
         .list-header h2 { font-family: 'Noto Serif KR', serif; font-size: 18px; margin: 0; }
+        .header-actions { display: flex; align-items: center; gap: 8px; }
+        .icon-btn {
+          background: var(--paper); color: var(--ink-soft); border: 1.5px solid var(--line); border-radius: 12px;
+          width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+        .icon-btn:hover { color: var(--jade-dark); border-color: var(--jade); }
         .add-fab {
           background: var(--danchae); color: #fff; border: none; border-radius: 12px; width: 38px; height: 38px;
           display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+        .import-message {
+          font-size: 12.5px; color: var(--jade-dark); background: rgba(63, 110, 82, 0.1);
+          border-radius: 10px; padding: 8px 12px; margin: 0 0 12px;
         }
         .word-item {
           background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
@@ -605,10 +672,26 @@ export default function KoreanVocabApp() {
             <>
               <div className="list-header">
                 <h2>단어장 ({words.length}) (単語帳)</h2>
-                <button className="add-fab" onClick={() => setShowForm(true)} aria-label="단어 추가">
-                  <Plus size={18} />
-                </button>
+                <div className="header-actions">
+                  <button className="icon-btn" onClick={exportWords} aria-label="내보내기" title="내보내기 (書き出し)">
+                    <Download size={17} />
+                  </button>
+                  <button className="icon-btn" onClick={triggerImport} aria-label="가져오기" title="가져오기 (読み込み)">
+                    <Upload size={17} />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json"
+                    style={{ display: "none" }}
+                    onChange={handleImportFile}
+                  />
+                  <button className="add-fab" onClick={() => setShowForm(true)} aria-label="단어 추가">
+                    <Plus size={18} />
+                  </button>
+                </div>
               </div>
+              {importMessage && <p className="import-message">{importMessage}</p>}
               {words.length === 0 ? (
                 <p className="empty-list">
                   등록된 단어가 없어요. + 를 눌러 추가해 보세요. (登録された単語がありません。+を押して追加してみましょう)
