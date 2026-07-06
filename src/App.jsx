@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, X, Trash2, Layers, BookMarked, Download, Upload, ArrowLeft, FileUp } from "lucide-react";
+import { Plus, X, Trash2, Layers, BookMarked, Download, Upload, ArrowLeft, FileUp, CalendarDays, ChevronLeft, ChevronRight, ThumbsUp } from "lucide-react";
 
 const STORAGE_KEY = "korean-vocab-words";
-const TRANSITION_MS = 260;
+const STAMPS_KEY = "vocab-app-login-stamps";
+const TRANSITION_MS = 170;
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -18,6 +19,20 @@ function pickRandomExcluding(pool, excludeIds = []) {
 function makeSlotCard(word, flipped) {
   return { renderId: uid(), word, flipped };
 }
+
+function pad2(n) {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+function dateKey(y, m, d) {
+  return `${y}-${pad2(m + 1)}-${pad2(d)}`;
+}
+
+function todayParts() {
+  const now = new Date();
+  return { y: now.getFullYear(), m: now.getMonth(), d: now.getDate() };
+}
+
 
 export default function VocabApp() {
   const [words, setWords] = useState([]);
@@ -48,6 +63,12 @@ export default function VocabApp() {
   const fileInputRef = useRef(null);
   const [importMessage, setImportMessage] = useState("");
 
+  const [stamps, setStamps] = useState([]);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const todayNow = todayParts();
+  const [viewYear, setViewYear] = useState(todayNow.y);
+  const [viewMonth, setViewMonth] = useState(todayNow.m);
+
   // ---- load on mount ----
   useEffect(() => {
     let mounted = true;
@@ -64,6 +85,17 @@ export default function VocabApp() {
         if (mounted) setLoading(false);
       }
     })();
+    (async () => {
+      try {
+        const res = await window.storage.get(STAMPS_KEY, false);
+        if (!mounted) return;
+        const list = res ? JSON.parse(res.value) : [];
+        setStamps(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!mounted) return;
+        setStamps([]);
+      }
+    })();
     return () => {
       mounted = false;
       if (exitTimeoutRef.current) clearTimeout(exitTimeoutRef.current);
@@ -74,6 +106,14 @@ export default function VocabApp() {
   const persist = useCallback(async (list) => {
     try {
       await window.storage.set(STORAGE_KEY, JSON.stringify(list), false);
+    } catch (e) {
+      // saving failed silently; keep working in-memory
+    }
+  }, []);
+
+  const persistStamps = useCallback(async (list) => {
+    try {
+      await window.storage.set(STAMPS_KEY, JSON.stringify(list), false);
     } catch (e) {
       // saving failed silently; keep working in-memory
     }
@@ -244,6 +284,53 @@ export default function VocabApp() {
   };
 
   const goToMenu = () => setScreen("menu");
+
+  const handleLoginTap = () => {
+    const { y, m, d } = todayParts();
+    const key = dateKey(y, m, d);
+    if (!stamps.includes(key)) {
+      const next = [...stamps, key];
+      setStamps(next);
+      persistStamps(next);
+    }
+    setViewYear(y);
+    setViewMonth(m);
+    setShowCalendar(true);
+  };
+
+  const changeMonth = (delta) => {
+    let nextMonth = viewMonth + delta;
+    let nextYear = viewYear;
+    if (nextMonth < 0) {
+      nextMonth = 11;
+      nextYear -= 1;
+    } else if (nextMonth > 11) {
+      nextMonth = 0;
+      nextYear += 1;
+    }
+    setViewMonth(nextMonth);
+    setViewYear(nextYear);
+  };
+
+  const stampSet = new Set(stamps);
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const todayKeyStr = dateKey(todayNow.y, todayNow.m, todayNow.d);
+  const calendarCells = [];
+  for (let i = 0; i < firstWeekday; i++) calendarCells.push({ day: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = dateKey(viewYear, viewMonth, d);
+    calendarCells.push({ day: d, stamped: stampSet.has(key), isToday: key === todayKeyStr });
+  }
+
+  let streakDays = 0;
+  {
+    const cursor = new Date(todayNow.y, todayNow.m, todayNow.d);
+    while (stampSet.has(dateKey(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()))) {
+      streakDays += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
 
   return (
     <div className="app-root">
@@ -484,6 +571,38 @@ export default function VocabApp() {
         .btn:disabled { opacity: 0.5; }
         .btn-primary { background: var(--danchae); color: #fff; }
         .btn-ghost { background: var(--paper); color: var(--ink-soft); border: 1.5px solid var(--line); }
+        .btn-login {
+          background: var(--gold); color: #fff; justify-content: center; width: 100%;
+          max-width: 300px; margin-top: 18px;
+        }
+        .streak-note {
+          font-size: 13px; color: var(--gold); font-weight: 700; margin: 8px 0 0;
+        }
+
+        .calendar-sheet { max-width: 380px; margin: 0 auto; }
+        .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .cal-month-label { font-family: 'Noto Serif JP', serif; font-weight: 700; font-size: 15px; }
+        .cal-weekdays {
+          display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;
+          font-size: 11px; color: var(--ink-soft); margin-bottom: 6px;
+        }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+        .cal-cell {
+          position: relative; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+          border-radius: 10px; background: var(--paper); border: 1px solid var(--line); font-size: 12.5px;
+          color: var(--ink-soft);
+        }
+        .cal-cell.empty { background: transparent; border: none; }
+        .cal-cell.today { border-color: var(--gold); border-width: 2px; color: var(--ink); font-weight: 700; }
+        .cal-stamp {
+          position: absolute; bottom: -4px; right: -4px; width: 18px; height: 18px; border-radius: 50%;
+          background: var(--danchae); color: #fff; display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 2px 5px rgba(194, 59, 34, 0.4);
+        }
+        .cal-streak {
+          text-align: center; font-size: 13px; color: var(--jade-dark); margin: 14px 0 0;
+          font-weight: 600;
+        }
         .action-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
 
         .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -556,7 +675,7 @@ export default function VocabApp() {
                 <Layers size={32} />
               </div>
               <h1>暗記単語帳</h1>
-              <p>単語ファイルを読み込んで学習を始めましょう。言語ごとにファイルを分けておけば、その日の気分で切り替えて使えます。</p>
+              <p>単語ファイルを読み込んで学習を始めよう！<br />言語ごとにファイルを分けてれば、<br />その日の気分で切り替えて使える！</p>
 
               {importMessage && <p className="import-message">{importMessage}</p>}
 
@@ -576,10 +695,15 @@ export default function VocabApp() {
                 )}
                 {!loading && words.length === 0 && (
                   <button className="btn btn-ghost" onClick={goToMenu}>
-                    まずは自分で単語を追加する
+                    自分で単語を追加する
                   </button>
                 )}
               </div>
+
+              <button className="btn btn-login" onClick={handleLoginTap}>
+                <CalendarDays size={16} /> 出席
+              </button>
+              {streakDays > 0 && <p className="streak-note">{streakDays}日継続中！</p>}
             </div>
           </div>
         ) : screen === "menu" ? (
@@ -871,6 +995,53 @@ export default function VocabApp() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {showCalendar && (
+          <div className="modal-overlay" onClick={() => setShowCalendar(false)}>
+            <div className="modal-sheet calendar-sheet" onClick={(e) => e.stopPropagation()}>
+              <h3>
+                ログインスタンプ
+                <button className="close-x" onClick={() => setShowCalendar(false)} aria-label="閉じる">
+                  <X size={20} />
+                </button>
+              </h3>
+              <div className="cal-nav">
+                <button className="icon-btn" onClick={() => changeMonth(-1)} aria-label="前の月">
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="cal-month-label">
+                  {viewYear}年{viewMonth + 1}月
+                </span>
+                <button className="icon-btn" onClick={() => changeMonth(1)} aria-label="次の月">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="cal-weekdays">
+                {["日", "月", "火", "水", "木", "金", "土"].map((d) => (
+                  <span key={d}>{d}</span>
+                ))}
+              </div>
+              <div className="cal-grid">
+                {calendarCells.map((cell, i) => (
+                  <div
+                    key={i}
+                    className={`cal-cell ${cell.day ? "" : "empty"} ${cell.isToday ? "today" : ""}`}
+                  >
+                    {cell.day && <span className="cal-day-num">{cell.day}</span>}
+                    {cell.stamped && (
+                      <span className="cal-stamp">
+                        <ThumbsUp size={12} />
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="cal-streak">
+                {streakDays > 1 ? `${streakDays}日連続でログイン中！` : "今日のログインスタンプを押しました！"}
+              </p>
             </div>
           </div>
         )}
