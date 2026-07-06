@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Plus, X, Trash2, Layers, BookMarked, Download, Upload, ArrowLeft, FileUp } from "lucide-react";
 
 const STORAGE_KEY = "korean-vocab-words";
-const TRANSITION_MS = 520;
+const TRANSITION_MS = 260;
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -50,24 +50,30 @@ export default function VocabApp() {
 
   // ---- load on mount ----
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const list = raw ? JSON.parse(raw) : [];
-      setWords(Array.isArray(list) ? list : []);
-    } catch (e) {
-      setWords([]);
-    } finally {
-      setLoading(false);
-    }
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await window.storage.get(STORAGE_KEY, false);
+        if (!mounted) return;
+        const list = res ? JSON.parse(res.value) : [];
+        setWords(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!mounted) return;
+        setWords([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
     return () => {
+      mounted = false;
       if (exitTimeoutRef.current) clearTimeout(exitTimeoutRef.current);
       if (enterRafRef.current) cancelAnimationFrame(enterRafRef.current);
     };
   }, []);
 
-  const persist = useCallback((list) => {
+  const persist = useCallback(async (list) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      await window.storage.set(STORAGE_KEY, JSON.stringify(list), false);
     } catch (e) {
       // saving failed silently; keep working in-memory
     }
@@ -182,22 +188,9 @@ export default function VocabApp() {
         return;
       }
 
-      let finalList;
-      if (words.length > 0) {
-        const replace = window.confirm(
-          `今の単語${words.length}語を消して、新しいファイルの単語${cleaned.length}語に入れ替えますか？\n` +
-            `「OK」= 入れ替える\n` +
-            `「キャンセル」= 今の単語に追加する`
-        );
-        finalList = replace
-          ? cleaned
-          : [...words, ...cleaned.filter((w) => !new Set(words.map((x) => x.id)).has(w.id))];
-      } else {
-        finalList = cleaned;
-      }
-
-      setWords(finalList);
-      persist(finalList);
+      // 読み込んだファイルの単語セットにそのまま入れ替える
+      setWords(cleaned);
+      persist(cleaned);
       resetCarousel();
       setImportMessage(`${cleaned.length}語を読み込みました`);
       setScreen("menu");
@@ -379,8 +372,9 @@ export default function VocabApp() {
           flex: 1;
           min-height: 440px;
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: center;
+          padding-top: 12px;
           perspective: 1400px;
         }
         .carousel-stage { position: relative; width: 100%; height: 400px; }
@@ -392,7 +386,7 @@ export default function VocabApp() {
           max-width: 340px;
           height: 118px;
           transform-style: preserve-3d;
-          transition: transform ${TRANSITION_MS}ms cubic-bezier(0.22, 0.8, 0.32, 1),
+          transition: transform ${TRANSITION_MS}ms cubic-bezier(0.3, 0.9, 0.4, 1),
             opacity ${TRANSITION_MS}ms ease;
         }
         .slot-top2 {
@@ -428,7 +422,7 @@ export default function VocabApp() {
 
         .card-inner {
           position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
-          transition: transform ${TRANSITION_MS}ms cubic-bezier(0.22, 0.8, 0.32, 1);
+          transition: transform ${TRANSITION_MS}ms cubic-bezier(0.3, 0.9, 0.4, 1);
         }
         .card-inner.flipped { transform: rotateY(180deg); }
 
@@ -655,13 +649,17 @@ export default function VocabApp() {
                   </button>
                 </div>
               </div>
-              <div className="stats-row">
-                <span className="stat-pill">
-                  <span className="stat-dot" style={{ background: "#3f6e52" }} />
-                  登録{words.length}語
-                </span>
-              </div>
-              {importMessage && <p className="import-message" style={{ marginTop: 10 }}>{importMessage}</p>}
+              {screen !== "cards" && (
+                <div className="stats-row">
+                  <span className="stat-pill">
+                    <span className="stat-dot" style={{ background: "#3f6e52" }} />
+                    登録{words.length}語
+                  </span>
+                </div>
+              )}
+              {screen !== "cards" && importMessage && (
+                <p className="import-message" style={{ marginTop: 10 }}>{importMessage}</p>
+              )}
             </div>
 
             <div className="main">
