@@ -76,7 +76,6 @@ export default function VocabApp() {
   const audioCtxRef = useRef(null);
   const lastActionRef = useRef(Date.now());
   const tickIntervalRef = useRef(null);
-  const tickPhaseRef = useRef(true);
   const [viewMonth, setViewMonth] = useState(todayNow.m);
 
   // ---- load on mount ----
@@ -147,48 +146,72 @@ export default function VocabApp() {
       window.storage.set(SOUND_KEY, String(next), false).catch(() => {});
       if (next) {
         // unlock/resume audio in response to this user gesture
-        getAudioCtx();
+        try {
+          getAudioCtx();
+        } catch (e) {
+          // if audio can't start here, playXSound() will just silently no-op later
+        }
       }
       return next;
     });
   };
 
   const getAudioCtx = () => {
-    if (!audioCtxRef.current) {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return null;
-      audioCtxRef.current = new AudioContextClass();
+    try {
+      if (!audioCtxRef.current) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        audioCtxRef.current = new AudioContextClass();
+      }
+      if (audioCtxRef.current.state === "suspended") {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+      return audioCtxRef.current;
+    } catch (e) {
+      return null;
     }
-    if (audioCtxRef.current.state === "suspended") {
-      audioCtxRef.current.resume();
-    }
-    return audioCtxRef.current;
   };
 
+  // "シュッ！" - a quick filtered noise whoosh for turning a card
   const playFlipSound = () => {
     if (!soundOnRef.current) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
     try {
       const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
+      const duration = 0.16;
+      const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * duration));
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.value = 0.7;
+      filter.frequency.setValueAtTime(2600, now);
+      filter.frequency.exponentialRampToValueAtTime(700, now + duration);
+
       const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(680, now);
-      osc.frequency.exponentialRampToValueAtTime(220, now + 0.1);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.13);
-      osc.connect(gain);
+      gain.gain.exponentialRampToValueAtTime(0.4, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      noise.connect(filter);
+      filter.connect(gain);
       gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.14);
+      noise.start(now);
+      noise.stop(now + duration);
     } catch (e) {
       // ignore audio errors
     }
   };
 
-  const playTickSound = (isTick) => {
+  // "チッ…" - a single soft, quiet clock-tick click
+  const playTickSound = () => {
     if (!soundOnRef.current) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
@@ -196,15 +219,15 @@ export default function VocabApp() {
       const now = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.setValueAtTime(isTick ? 1500 : 1100, now);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1800, now);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.004);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+      gain.gain.exponentialRampToValueAtTime(0.025, now + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
-      osc.stop(now + 0.05);
+      osc.stop(now + 0.035);
     } catch (e) {
       // ignore audio errors
     }
@@ -307,8 +330,7 @@ export default function VocabApp() {
     tickIntervalRef.current = setInterval(() => {
       if (!soundOnRef.current) return;
       if (Date.now() - lastActionRef.current > IDLE_TICK_MS) {
-        playTickSound(tickPhaseRef.current);
-        tickPhaseRef.current = !tickPhaseRef.current;
+        playTickSound();
       }
     }, 1000);
 
