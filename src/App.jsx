@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, X, Trash2, Layers, BookMarked, Download, Upload, ArrowLeft, FileUp, CalendarDays, ChevronLeft, ChevronRight, ThumbsUp } from "lucide-react";
+import { Plus, X, Trash2, Layers, BookMarked, Download, Upload, ArrowLeft, FileUp, CalendarDays, ChevronLeft, ChevronRight, ThumbsUp, Undo2 } from "lucide-react";
 
 const STORAGE_KEY = "korean-vocab-words";
 const STAMPS_KEY = "vocab-app-login-stamps";
@@ -197,14 +197,8 @@ export default function VocabApp() {
     }, TRANSITION_MS);
   }, [isAnimating]);
 
-  const handleCardsTap = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    if (x < rect.width / 2) {
-      advance();
-    } else {
-      goBack();
-    }
+  const handleCardsTap = () => {
+    advance();
   };
 
   const resetCarousel = () => {
@@ -587,6 +581,14 @@ export default function VocabApp() {
         }
 
         .tap-hint { text-align: center; font-size: 11.5px; color: var(--ink-soft); margin: 8px 0 0; }
+        .back-fab {
+          position: absolute; right: 20px; bottom: 20px; width: 48px; height: 48px; border-radius: 50%;
+          background: var(--paper); border: 1.5px solid var(--line); color: var(--ink-soft);
+          display: flex; align-items: center; justify-content: center; cursor: pointer;
+          box-shadow: 0 6px 16px -8px rgba(33, 43, 32, 0.35); z-index: 5;
+        }
+        .back-fab:active { transform: scale(0.94); }
+        .back-fab:disabled { opacity: 0.35; cursor: default; }
 
         .empty-state {
           flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -953,7 +955,15 @@ export default function VocabApp() {
                         )}
                       </div>
                     </div>
-                    <p className="tap-hint">画面の左側をタップで次へ、右側をタップで戻れます</p>
+                    <p className="tap-hint">タップすると次のカードに進みます</p>
+                    <button
+                      className="back-fab"
+                      onClick={goBack}
+                      disabled={isAnimating || historyRef.current.length === 0}
+                      aria-label="1つ前のカードに戻る"
+                    >
+                      <Undo2 size={18} />
+                    </button>
                   </>
                 )
               ) : (
